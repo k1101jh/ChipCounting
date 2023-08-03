@@ -1,0 +1,10 @@
+defaults:
+  - model: attention_unet
+  - dataset: chipc
+  - optimizer: adamw
+  - scheduler: cosine_annealing
+  - task: default
+
+experiment_name: ${now:%Y-%m-%d}_${now:%H-%M-%S}
+log: True
+ignore_warnings: False

@@ -1,0 +1,1 @@
+python ./codes/preprocess/preprocess.py --data-path "./original_data" --data-folders D4

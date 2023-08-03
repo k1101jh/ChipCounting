@@ -1,0 +1,4 @@
+batch_size: 16
+num_workers: 4
+epochs: 100
+test_interval: 10
