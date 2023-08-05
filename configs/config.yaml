@@ -3,7 +3,8 @@ defaults:
   - dataset: chipc
   - optimizer: adamw
   - scheduler: cosine_annealing
-  - task: default
+  - train: default
+  - inference: default
 
 experiment_name: ${now:%Y-%m-%d}_${now:%H-%M-%S}
 log: True

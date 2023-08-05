@@ -21,8 +21,8 @@ from PIL import Image
 from torchvision.transforms.functional import to_pil_image
 from torchvision import transforms
 
-from utils import binaryMask16
-from utils import equalizeHist16
+from utils import binary_mask_16
+from utils import equalize_hist_16
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s: %(message)s",
@@ -69,8 +69,7 @@ def generate_laplace_heatmap(gt, H, W, scale):
 
     laplace_img = laplace_img / laplace_img.max()
     laplace_img *= 255
-    laplace_img = Image.fromarray(laplace_img)
-    laplace_img = laplace_img.convert("RGB")
+    laplace_img = Image.fromarray(laplace_img).convert("L")
 
     return laplace_img
 
@@ -104,7 +103,10 @@ def preprocess():
         help="path where the dataset folder is located",
     )
     parser.add_argument(
-        "--data-folders", nargs="+", default=["D4"], help="list of dataset dirname"
+        "--data-folders",
+        nargs="+",
+        default=["D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8", "D9"],
+        help="list of dataset dirname",
     )
     parser.add_argument(
         "--dest-path",
@@ -122,6 +124,12 @@ def preprocess():
         type=int,
         default=multiprocessing.cpu_count(),
         help="number of processes",
+    )
+    parser.add_argument(
+        "--overwrite",
+        type=bool,
+        default=False,
+        help="if the file already exists, do not overwrite",
     )
 
     args = parser.parse_args()
@@ -147,19 +155,36 @@ def preprocess():
         tif_file_list = glob.glob(tif_target)
         tif_file_list.sort()
 
-        # gt 경로 리스트에 저장
+        # gt 경로 리스트 생성
         gt_txt_target = os.path.join(data_folder_path, "*.txt")
         cur_data_gt_file_list = glob.glob(gt_txt_target)
-        gt_file_list += cur_data_gt_file_list
 
         # heatmap 저장 경로 저장
+        cur_heatmap_save_path_list = []
         for gt_file_path in cur_data_gt_file_list:
-            heatmap_save_path_list.append(
+            cur_heatmap_save_path_list.append(
                 os.path.join(
                     heatmap_dir_path,
                     os.path.split(os.path.splitext(gt_file_path)[0])[1] + ".png",
                 )
             )
+
+        # gt 경로 리스트에 저장
+        if not args.overwrite:
+            new_gt_path_list = []
+            new_heatmap_path_list = []
+            for gt_path, heatmap_path in zip(
+                cur_data_gt_file_list, cur_heatmap_save_path_list
+            ):
+                if not os.path.exists(heatmap_path):
+                    new_gt_path_list.append(gt_path)
+                    new_heatmap_path_list.append(heatmap_path)
+
+            gt_file_list += new_gt_path_list
+            heatmap_save_path_list += new_heatmap_path_list
+        else:
+            gt_file_list += cur_data_gt_file_list
+            heatmap_save_path_list += cur_heatmap_save_path_list
 
         # 원본 이미지 복사, 히스토그램 평활화 이미지 저장
         logging.info("원본 이미지 복사 및 히스토그램 평활화 이미지 저장")
@@ -169,22 +194,28 @@ def preprocess():
                 original_image_dir_path, os.path.split(tif_file_path)[1]
             )
             input_image_save_path = os.path.join(
-                input_image_dir_path, os.path.split(tif_file_path)[1]
+                input_image_dir_path,
+                os.path.split(os.path.splitext(tif_file_path)[0])[1] + ".png",
             )
 
-            # 입력 이미지 불러오기
-            original_image = cv2.imread(tif_file_path, flags=cv2.IMREAD_UNCHANGED)
+            # 파일이 이미 존재하는지 검사
+            if bool(args.overwrite) != bool(
+                not os.path.exists(original_image_save_path)
+            ):
+                # 이미지 복사
+                shutil.copy(tif_file_path, os.path.join(original_image_save_path))
 
-            # binary mask 적용
-            binary_image = binaryMask16(original_image, threshold=3000)
-            # 히스토그램 평활화
-            hist_image = equalizeHist16(binary_image)
+            if bool(args.overwrite) != bool(not os.path.exists(input_image_save_path)):
+                # 입력 이미지 불러오기
+                original_image = cv2.imread(tif_file_path, flags=cv2.IMREAD_UNCHANGED)
 
-            # 히스토그램 평활화 이미지 저장
-            cv2.imwrite(input_image_save_path, hist_image)
+                # binary mask 적용
+                binary_image = binary_mask_16(original_image, threshold=3000)
+                # 히스토그램 평활화
+                hist_image = equalize_hist_16(binary_image)
 
-            # 이미지 복사
-            shutil.copy(tif_file_path, os.path.join(original_image_save_path))
+                # 히스토그램 평활화 이미지 저장
+                cv2.imwrite(input_image_save_path, hist_image)
 
     logging.info("heatmap 생성 및 저장")
     results = process_map(

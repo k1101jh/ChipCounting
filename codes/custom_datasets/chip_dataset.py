@@ -4,6 +4,7 @@ import torch
 import torchvision
 from torch.utils.data import Dataset
 from torchvision import transforms
+import torchvision.transforms.functional as F
 from PIL import Image
 
 from utils import SplitTensorModule
@@ -18,30 +19,39 @@ class ChipDataset(Dataset):
             input_transform (_type_): transform 적용 이후 input image에만 적용하는 transform
             transform (_type_): input image와 heatmap에 모두 적용하는 transform
         """
-        super.__init__(**kwargs)
+        super().__init__()
         self.transform = transform
         self.tensor_split_module = SplitTensorModule(
-            patch_size=kwargs["data"]["patch_size"],
-            stride=kwargs["data"]["patch_stride"],
+            patch_size=kwargs["patch_size"],
+            stride=kwargs["patch_stride"],
         )
         self.input_dataset = None
         self.heatmap_dataset = None
 
         image_folder_path_list = [
-            os.path.join(kwargs["data"]["hist_image_dataset_path"], data_folder)
+            os.path.join(kwargs["input_image_dataset_path"], data_folder)
             for data_folder in data_dir_list
         ]
         heatmap_folder_path_list = [
-            os.path.join(kwargs["data"]["heatmap_dataset_path"], data_folder)
+            os.path.join(kwargs["heatmap_dataset_path"], data_folder)
             for data_folder in data_dir_list
         ]
 
         self.input_image_path_list = []
         self.heatmap_image_path_list = []
         for image_folder_path in image_folder_path_list:
-            self.input_image_path_list += os.listdir(image_folder_path).sort()
+            self.input_image_path_list += [
+                os.path.join(image_folder_path, file)
+                for file in os.listdir(image_folder_path)
+            ]
         for heatmap_folder_path in heatmap_folder_path_list:
-            self.heatmap_image_path_list += os.listdir(heatmap_folder_path).sort()
+            self.heatmap_image_path_list += [
+                os.path.join(heatmap_folder_path, file)
+                for file in os.listdir(heatmap_folder_path)
+            ]
+
+        self.input_image_path_list.sort()
+        self.heatmap_image_path_list.sort()
 
         assert len(self.input_image_path_list) == len(
             self.heatmap_image_path_list
@@ -63,18 +73,21 @@ class ChipDataset(Dataset):
         Returns:
             _type_: _description_
         """
-        input_image = Image.open(self.input_image_path_list[idx])
-        heatmap_image = Image.open(self.heatmap_image_path_list[idx])
+        input_image = F.to_tensor(Image.open(self.input_image_path_list[idx]))
+        heatmap_image = F.to_tensor(Image.open(self.heatmap_image_path_list[idx]))
 
         # patch 나누기
-        images = torch.cat((input_image, heatmap_image), 0)
-        images, y_map, x_map = self.tensor_split_module(images)
-
+        images = torch.cat((input_image, heatmap_image), 0).unsqueeze(1)
+        images = images / 255.0
+        images = self.tensor_split_module(images)
+        # print(images.shape)
         # random patch 선택
-        random_idx = random.randrange(0, images.shape[0])
-        patches = images[0, random_idx]
+        random_idx = random.randrange(0, images.shape[1])
+        patches = images[:, random_idx]
 
         # transform 적용
-        patches = self.transform(patches[random_idx])
+        patches = self.transform(patches)
+        # img = F.to_pil_image(patches[0])
+        # img.show()
 
-        return patches
+        return patches[0].unsqueeze(0), patches[1].unsqueeze(0)

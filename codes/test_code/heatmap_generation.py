@@ -9,7 +9,7 @@ import torch.nn as nn
 
 
 def generate_heatmap(data_path: str, save_path: str, heatmap_size: int):
-    def equalizeHist16(img):
+    def equalize_hist_16(img):
         hist, bins = np.histogram(img.flatten(), 65536, [0, 65526])
         cdf = hist.cumsum()
 
@@ -50,16 +50,15 @@ def generate_heatmap(data_path: str, save_path: str, heatmap_size: int):
         gray_img = img
         # threshold_value, binary_mask = cv2.threshold(gray_img, 0, 65535, cv2.THRESH_OTSU)
         threshold_value, binary_mask = cv2.threshold(
-            gray_img, 3000, 65535, cv2.THRESH_BINARY_INV
+            gray_img, 3000, 1, cv2.THRESH_BINARY_INV
         )
-
         # cv2.imshow("binary", binary_mask)
         # cv2.waitKey()
 
         # 히스토그램 평활화
-        # binary_img = binary_img * (65535 - binary_mask)
+        # binary_img = binary_img * (1 - binary_mask)
         gray_img = gray_img * binary_mask
-        gray_img = equalizeHist16(gray_img)
+        gray_img = equalize_hist_16(gray_img)
 
         # binary 이미지에 heatmap 표시
         gray_gt_img = cv2.cvtColor(gray_img, cv2.COLOR_GRAY2BGR)
@@ -76,8 +75,8 @@ def generate_heatmap(data_path: str, save_path: str, heatmap_size: int):
 
 
 if __name__ == "__main__":
-    data_path = r"./Chipdata/data/D5"
-    save_path = r"./code_test_results/binary_equalizeHist_images/D5"
+    data_path = r"./original_data/D5"
+    save_path = r"./code_test_results/binary_equalize_hist_images/D5"
 
     os.makedirs(save_path, exist_ok=True)
 

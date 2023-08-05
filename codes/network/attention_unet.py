@@ -4,7 +4,7 @@ import torch
 
 class DoubleConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels, mid_channels=None):
-        super.__init__()
+        super().__init__()
         if not mid_channels:
             mid_channels = out_channels
 
@@ -37,7 +37,7 @@ class DoubleConvBlock(nn.Module):
 
 class UpsampleBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
-        super.__init__()
+        super().__init__()
         self.up = nn.Sequential(
             nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True),
             nn.Conv2d(
@@ -58,7 +58,7 @@ class UpsampleBlock(nn.Module):
 
 class AttentionBlock(nn.Module):
     def __init__(self, F_g, F_l, num_coefficients):
-        super.__init__()
+        super().__init__()
         self.W_g = nn.Sequential(
             nn.Conv2d(
                 F_g, num_coefficients, kernel_size=1, stride=1, padding=0, bias=True
@@ -94,7 +94,7 @@ class AttentionBlock(nn.Module):
 
 class AttentionUNet(nn.Module):
     def __init__(self, in_channels=1, out_channels=1, channels=None):
-        super.__init__()
+        super().__init__()
         assert len(channels) == 5, "Unet channel 개수가 구현과 다릅니다. config 파일을 확인하세요."
 
         self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
@@ -156,36 +156,36 @@ class AttentionUNet(nn.Module):
     def forward(self, x):
         x1 = self.conv1(x)
 
-        x2 = self.maxpool(x)
-        x2 = self.conv2(x)
+        x2 = self.maxpool(x1)
+        x2 = self.conv2(x2)
 
-        x3 = self.maxpool(x)
-        x3 = self.conv3(x)
+        x3 = self.maxpool(x2)
+        x3 = self.conv3(x3)
 
-        x4 = self.maxpool(x)
-        x4 = self.conv4(x)
+        x4 = self.maxpool(x3)
+        x4 = self.conv4(x4)
 
-        x5 = self.maxpool(x)
-        x5 = self.conv5(x)
+        x5 = self.maxpool(x4)
+        x5 = self.conv5(x5)
 
-        d5 = self.up4(x5)
-        s4 = self.attention4(d5, skip_connection=x4)
-        d4 = torch.cat((s4, d5), dim=1)
+        d4 = self.up4(x5)
+        s4 = self.attention4(d4, x=x4)
+        d4 = torch.cat((s4, d4), dim=1)
         d4 = self.up_conv4(d4)
 
-        d4 = self.up3(x)
-        s3 = self.attention3(d4, skip_connection=x3)
-        d3 = torch.cat((s3, d4), dim=1)
+        d3 = self.up3(d4)
+        s3 = self.attention3(d3, x=x3)
+        d3 = torch.cat((s3, d3), dim=1)
         d3 = self.up_conv3(d3)
 
-        d3 = self.up2(x)
-        s2 = self.attention2(d3, skip_connection=x2)
-        d2 = torch.cat((s2, d3), dim=1)
+        d2 = self.up2(d3)
+        s2 = self.attention2(d2, x=x2)
+        d2 = torch.cat((s2, d2), dim=1)
         d2 = self.up_conv2(d2)
 
-        d2 = self.up1(x)
-        s1 = self.attention1(d2, skip_connection=x1)
-        d1 = torch.cat((s1, d2), dim=1)
+        d1 = self.up1(d2)
+        s1 = self.attention1(d1, x=x1)
+        d1 = torch.cat((s1, d1), dim=1)
         d1 = self.up_conv1(d1)
 
         out = self.last_conv(d1)

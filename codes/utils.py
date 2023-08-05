@@ -6,19 +6,20 @@ import cv2
 import logging
 import torch
 import torch.nn as nn
+import matplotlib.pyplot as plt
 
 
-def binaryMask16(image, threshold=None):
+def binary_mask_16(image, threshold=None):
     if threshold == None:
         threshold_value, binary_mask = cv2.threshold(image, 0, 65535, cv2.THRESH_OTSU)
     else:
         threshold_value, binary_mask = cv2.threshold(
-            image, threshold, 65535, cv2.THRESH_BINARY_INV
+            image, threshold, 1, cv2.THRESH_BINARY_INV
         )
     return image * binary_mask
 
 
-def equalizeHist16(image):
+def equalize_hist_16(image):
     hist, bins = np.histogram(image.flatten(), 65536, [0, 65526])
     cdf = hist.cumsum()
 
@@ -28,6 +29,22 @@ def equalizeHist16(image):
 
     result = cdf[image]
     return result
+
+
+def plot_images(inp, title=None, show=True, save_path=None):
+    inp = inp.numpy().transpose((1, 2, 0))
+    plt.imshow(inp)
+
+    if title:
+        plt.title(title)
+
+    if show:
+        plt.show()
+
+    if save_path:
+        plt.savefig(save_path)
+
+    plt.close()
 
 
 class SplitTensorModule(nn.Module):
@@ -52,7 +69,7 @@ class SplitTensorModule(nn.Module):
         self.index = index
         self.kernel_size = patch_size
         self.unfold = nn.Unfold(kernel_size=patch_size, stride=stride, padding=pad)
-        Ymap, Xmap = np.expand_dims(np.mgrid[0:H:1, 0:W:1], axis=0)
+        Ymap, Xmap = np.mgrid[0:H:1, 0:W:1]
         self.Ymap = torch.tensor(Ymap, dtype=torch.float).unsqueeze(0)
         self.Xmap = torch.tensor(Xmap, dtype=torch.float).unsqueeze(0)
         # [1, H, W]
@@ -62,9 +79,9 @@ class SplitTensorModule(nn.Module):
             x = self.unfold(x)
             ind_y = self.unfold(self.Ymap.view(1, 1, self.H, self.W))
             ind_x = self.unfold(self.Xmap.view(1, 1, self.H, self.W))
-            print(ind_y.shape)
-            print(ind_x.shape)
-            x = x.permute(0, 2, 1).view(1, -1, self.kernel_size, self.kernel_size)
+            x = x.permute(0, 2, 1).view(
+                x.shape[0], -1, self.kernel_size, self.kernel_size
+            )
             ind_y = ind_y.permute(0, 2, 1).view(
                 1, -1, self.kernel_size, self.kernel_size
             )
@@ -75,5 +92,7 @@ class SplitTensorModule(nn.Module):
             return x, ind_y, ind_x
         else:
             x = self.unfold(x)
-            x = x.permute(0, 2, 1).view(1, -1, self.kernel_size, self.kernel_size)
+            x = x.permute(0, 2, 1).view(
+                x.shape[0], -1, self.kernel_size, self.kernel_size
+            )
             return x

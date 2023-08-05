@@ -68,7 +68,7 @@ class mytensorsplit(nn.Module):
 
 if __name__ == "__main__":
     ## tensor split
-    inputs = torch.load("./codes/code_test/testinput.pt")
+    inputs = torch.load("./codes/test_code/testinput.pt")
     print(inputs.shape)
     fun = mytensorsplit(p_size=512, stri=256, pad=0, index=True, H=2400, W=2880)
     patch, ymap, xmap = fun(inputs)

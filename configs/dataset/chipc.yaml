@@ -1,0 +1,7 @@
+dataset_path: "./dataset"
+image_dataset_path: "./dataset/image"
+input_image_dataset_path: "./dataset/input"
+heatmap_dataset_path: "./dataset/heatmap"
+
+patch_size: 512
+patch_stride: 128

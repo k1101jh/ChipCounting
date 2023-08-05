@@ -2,7 +2,7 @@
 # Edit at https://www.toptal.com/developers/gitignore?templates=visualstudiocode,python
 
 Chipdata/
-dataset/
+/dataset/
 gt_images/
 Papers/
 logs/
@@ -10,6 +10,8 @@ runs/
 outputs/
 code_test_results/
 original_data/
+saved_models/
+results/
 .vscode/
 
 ### Python ###
