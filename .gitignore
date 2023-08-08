@@ -13,6 +13,8 @@ original_data/
 saved_models/
 results/
 .vscode/
+.SynologyWorkingDirectory
+desktop.ini
 
 ### Python ###
 # Byte-compiled / optimized / DLL files

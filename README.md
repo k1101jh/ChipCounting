@@ -1,2 +1,1 @@
-# ChipDetection
- 
+# ChipCounting

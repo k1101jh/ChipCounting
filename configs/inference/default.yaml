@@ -6,5 +6,4 @@ batch_size: 4
 num_workers: 4
 
 inference_data_folder_list:
-  - "D4"
-  - "D9"
+  - "D7"

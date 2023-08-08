@@ -1,12 +1,19 @@
 batch_size: 4
 num_workers: 4
-epochs: 100
+epochs: 1000
 test_interval: 10
 save_model: True
 model_save_path: saved_models/${experiment_name}
+profiling: False
 
 train_data_folder_list:
+  - "D1"
+  - "D2"
+  - "D3"
   - "D4"
+  - "D5"
+  - "D6"
+  - "D8"
   - "D9"
 test_data_folder_list:
   - "D7"

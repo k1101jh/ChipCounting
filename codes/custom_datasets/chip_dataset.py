@@ -11,7 +11,7 @@ from utils import SplitTensorModule
 
 
 class ChipDataset(Dataset):
-    def __init__(self, data_dir_list, transform, **kwargs):
+    def __init__(self, data_dir_list, transform, unfold_mode="crop", **kwargs):
         """_summary_
 
         Args:
@@ -29,25 +29,21 @@ class ChipDataset(Dataset):
         self.heatmap_dataset = None
 
         image_folder_path_list = [
-            os.path.join(kwargs["input_image_dataset_path"], data_folder)
-            for data_folder in data_dir_list
+            os.path.join(kwargs["input_image_dataset_path"], data_folder) for data_folder in data_dir_list
         ]
         heatmap_folder_path_list = [
-            os.path.join(kwargs["heatmap_dataset_path"], data_folder)
-            for data_folder in data_dir_list
+            os.path.join(kwargs["heatmap_dataset_path"], data_folder) for data_folder in data_dir_list
         ]
 
         self.input_image_path_list = []
         self.heatmap_image_path_list = []
         for image_folder_path in image_folder_path_list:
             self.input_image_path_list += [
-                os.path.join(image_folder_path, file)
-                for file in os.listdir(image_folder_path)
+                os.path.join(image_folder_path, file) for file in os.listdir(image_folder_path)
             ]
         for heatmap_folder_path in heatmap_folder_path_list:
             self.heatmap_image_path_list += [
-                os.path.join(heatmap_folder_path, file)
-                for file in os.listdir(heatmap_folder_path)
+                os.path.join(heatmap_folder_path, file) for file in os.listdir(heatmap_folder_path)
             ]
 
         self.input_image_path_list.sort()
@@ -76,18 +72,17 @@ class ChipDataset(Dataset):
         input_image = F.to_tensor(Image.open(self.input_image_path_list[idx]))
         heatmap_image = F.to_tensor(Image.open(self.heatmap_image_path_list[idx]))
 
+        input_image = input_image / 65535.0
+
         # patch 나누기
         images = torch.cat((input_image, heatmap_image), 0).unsqueeze(1)
-        images = images / 255.0
         images = self.tensor_split_module(images)
-        # print(images.shape)
+
         # random patch 선택
         random_idx = random.randrange(0, images.shape[1])
         patches = images[:, random_idx]
 
         # transform 적용
         patches = self.transform(patches)
-        # img = F.to_pil_image(patches[0])
-        # img.show()
 
         return patches[0].unsqueeze(0), patches[1].unsqueeze(0)

@@ -40,16 +40,6 @@ def train(cfg: DictConfig):
     current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     writer = SummaryWriter(log_dir=f"runs/{current_time}")
 
-    # profiler 설정
-    prof = torch.profiler.profile(
-        schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=2),
-        on_trace_ready=torch.profiler.tensorboard_trace_handler(
-            f"runs/{current_time}_prof"
-        ),
-        record_shapes=True,
-        with_stack=True,
-    )
-
     data_transforms = {
         "train": transforms.Compose(
             [
@@ -78,12 +68,14 @@ def train(cfg: DictConfig):
             batch_size=cfg.train.batch_size,
             shuffle=True,
             num_workers=cfg.train.num_workers,
+            pin_memory=True,
         ),
         "test": DataLoader(
             datasets["test"],
             batch_size=cfg.train.batch_size,
             shuffle=False,
             num_workers=cfg.train.num_workers,
+            pin_memory=True,
         ),
     }
 
@@ -95,8 +87,18 @@ def train(cfg: DictConfig):
 
     epoch_loss = 0.0
 
-    # profiling 시작
-    prof.start()
+    if cfg.train.profiling:
+        # profiler 설정
+        prof = torch.profiler.profile(
+            schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=2),
+            on_trace_ready=torch.profiler.tensorboard_trace_handler(f"runs/{current_time}_prof"),
+            record_shapes=True,
+            with_stack=True,
+            use_cuda=True,
+            profile_memory=True,
+        )
+        # profiling 시작
+        prof.start()
 
     epochs_pbar = tqdm(range(1, cfg.train.epochs), desc="epochs", position=0)
     for epoch in epochs_pbar:
@@ -127,7 +129,7 @@ def train(cfg: DictConfig):
                     outputs = model(inputs)
 
                     loss = critic(outputs, heatmaps)
-                    metrics["loss"] += 1000 * loss.item() * num_iter_samples
+                    metrics["loss"] += loss.item() * num_iter_samples
 
                     if phase == "train":
                         loss.backward()
@@ -138,7 +140,8 @@ def train(cfg: DictConfig):
             # Loss를 tensorboard에 기록
             writer.add_scalar(f"Loss/{phase}", epoch_loss, global_step=epoch)
 
-            prof.step()
+            if cfg.train.profiling:
+                prof.step()
 
         # learning rate를 tensorboard에 기록
         writer.add_scalar(f"lr", scheduler.get_last_lr()[0], global_step=epoch)
@@ -149,7 +152,11 @@ def train(cfg: DictConfig):
     epochs_pbar.close()
 
     # profiling 종료
-    prof.stop()
+    if cfg.train.profiling:
+        prof.stop()
+        print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=20))
+        print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=20))
+        print(prof.key_averages().table(sort_by="self_cpu_memory_usage", row_limit=20))
 
     # 모델 저장
     state = {
@@ -159,9 +166,7 @@ def train(cfg: DictConfig):
         "scheduler": scheduler.state_dict(),
     }
 
-    model_save_path = (
-        cfg.train.model_save_path + f"_epoch_{epoch}_loss_{epoch_loss:.4f}.pth"
-    )
+    model_save_path = cfg.train.model_save_path + f"_epoch_{epoch}_loss_{epoch_loss:.4f}.pth"
     torch.save(state, model_save_path)
 
 
