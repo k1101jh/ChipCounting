@@ -28,7 +28,6 @@ def train(cfg: DictConfig):
 
     # device 설정
     device = torch.device(f"cuda" if torch.cuda.is_available() else "cpu")
-    # torch.cuda.set_device(device)
     print(
         "GPU_number : ",
         torch.cuda.current_device(),
@@ -43,10 +42,11 @@ def train(cfg: DictConfig):
     data_transforms = {
         "train": transforms.Compose(
             [
+                transforms.RandomCrop(cfg.dataset.patch_size),
                 transforms.RandomRotation(degrees=30),
             ],
         ),
-        "test": transforms.Compose([]),
+        "test": transforms.Compose([transforms.RandomCrop(cfg.dataset.patch_size)]),
     }
 
     datasets = {
@@ -69,6 +69,7 @@ def train(cfg: DictConfig):
             shuffle=True,
             num_workers=cfg.train.num_workers,
             pin_memory=True,
+            prefetch_factor=4,
         ),
         "test": DataLoader(
             datasets["test"],
@@ -76,6 +77,7 @@ def train(cfg: DictConfig):
             shuffle=False,
             num_workers=cfg.train.num_workers,
             pin_memory=True,
+            prefetch_factor=5,
         ),
     }
 
@@ -90,19 +92,19 @@ def train(cfg: DictConfig):
     if cfg.train.profiling:
         # profiler 설정
         prof = torch.profiler.profile(
+            activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
             schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=2),
             on_trace_ready=torch.profiler.tensorboard_trace_handler(f"runs/{current_time}_prof"),
             record_shapes=True,
             with_stack=True,
-            use_cuda=True,
             profile_memory=True,
         )
         # profiling 시작
         prof.start()
 
-    epochs_pbar = tqdm(range(1, cfg.train.epochs), desc="epochs", position=0)
+    epochs_pbar = tqdm(range(1, cfg.train.epochs + 1), desc="epochs", position=0)
     for epoch in epochs_pbar:
-        if epoch % cfg.train.test_interval:
+        if epoch % cfg.train.test_interval == 0:
             phases = ["train", "test"]
         else:
             phases = ["train"]
@@ -120,6 +122,7 @@ def train(cfg: DictConfig):
             for inputs, heatmaps in iter_pbar:
                 inputs = inputs.to(device)
                 heatmaps = heatmaps.to(device)
+
                 num_iter_samples = inputs.size(0)
                 num_epoch_samples += num_iter_samples
 

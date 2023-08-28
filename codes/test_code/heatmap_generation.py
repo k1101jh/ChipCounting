@@ -6,143 +6,148 @@ import cv2
 import logging
 import torch
 import torch.nn as nn
+import math
+import scipy
+from numpy import inf
+from PIL import Image
+from tqdm import tqdm
+from multiprocessing import current_process
+from tqdm.contrib.concurrent import process_map
 
 
-def generate_heatmap(data_path: str, save_path: str, heatmap_size: int):
-    def equalize_hist_16(img):
-        hist, bins = np.histogram(img.flatten(), 65536, [0, 65526])
-        cdf = hist.cumsum()
+def generate_laplace_heatmap(gt_points, H, W, scale):
+    """laplace heatmap을 생성해서 반환하는 함수
 
-        cdf_m = np.ma.masked_equal(cdf, 0)
-        cdf_m = (cdf_m - cdf_m.min()) * 65535 / (cdf_m.max() - cdf_m.min())
-        cdf = np.ma.filled(cdf_m, 0).astype("uint16")
+    앞으로 고민할 점: 육안으로 검은색인 영역의 실제 값은 0인가?
+                     (scale이 작으면 0일 것으로 생각됨)
 
-        equ = cdf[img]
-        return equ
+    Args:
+        gt (_type_): _description_
+        H (_type_): _description_
+        W (_type_): _description_
+        scale (_type_): _description_
 
-    tif_target = os.path.join(data_path, "*.tif")
-    gt_txt_target = os.path.join(data_path, "*.txt")
+    Returns:
+        _type_: _description_
+    """
+    x_axis_mtx = np.arange(W)
+    x_axis_mtx = np.matlib.repmat(x_axis_mtx, H, 1)
+    y_axis_mtx = np.arange(H)
+    y_axis_mtx = np.matlib.repmat(y_axis_mtx, W, 1).transpose()
 
-    tif_file_list = glob.glob(tif_target)
-    gt_file_list = glob.glob(gt_txt_target)
-
-    tif_file_list.sort()
-    gt_file_list.sort()
-
-    # txt 파일 읽어서 gt 데이터 확인하기
-    gt_list = []
-    for gt_filepath in gt_file_list:
-        # gt_df_list.append(pd.read_csv(gt_filename, sep=','))
-        with open(gt_filepath, "r") as f:
-            gt_points = list(csv.reader(f, delimiter=","))
-            # str인 좌표를 int형으로 변경
-            gt_points = [[eval(i[0]), eval(i[1])] for i in gt_points]
-            gt_list.append(gt_points)
-            f.close()
-
-    # 이미지 읽어서 이진화 적용하기
-    tif_size_list = []
-    for tif_filepath, gt in zip(tif_file_list, gt_list):
-        img = cv2.imread(tif_filepath, flags=cv2.IMREAD_UNCHANGED)
-        print(img.max(), img.min())
-        tif_size_list.append(img.size)
-        # gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        gray_img = img
-        # threshold_value, binary_mask = cv2.threshold(gray_img, 0, 65535, cv2.THRESH_OTSU)
-        threshold_value, binary_mask = cv2.threshold(
-            gray_img, 3000, 1, cv2.THRESH_BINARY_INV
+    laplace_img = np.zeros((H, W))
+    process_idx = current_process()._identity[0] - 1
+    for gt_point in tqdm(
+        gt_points,
+        desc=f"process {process_idx} generating heatmap...",
+        position=process_idx + 1,
+        leave=True,
+    ):
+        center_width_mtx = np.ones((H, W)) * gt_point[0]
+        center_height_mtx = np.ones((H, W)) * gt_point[1]
+        x_axis_dist = x_axis_mtx - center_width_mtx
+        y_axis_dist = y_axis_mtx - center_height_mtx
+        laplace_img += (1 / (2 * scale)) * np.exp(
+            -1 * (np.abs(x_axis_dist) + np.abs(y_axis_dist)) / (scale**2)
         )
-        # cv2.imshow("binary", binary_mask)
-        # cv2.waitKey()
 
-        # 히스토그램 평활화
-        # binary_img = binary_img * (1 - binary_mask)
-        gray_img = gray_img * binary_mask
-        gray_img = equalize_hist_16(gray_img)
+    laplace_img = laplace_img / laplace_img.max()
+    laplace_img *= 255
+    laplace_img = Image.fromarray(laplace_img)
+    # laplace_img = to_pil_image(laplace_img)
+    laplace_img = laplace_img.convert("RGB")
 
-        # binary 이미지에 heatmap 표시
-        gray_gt_img = cv2.cvtColor(gray_img, cv2.COLOR_GRAY2BGR)
-        for gt_point in gt:
-            gray_gt_img = cv2.circle(
-                gray_gt_img, gt_point, heatmap_size, (0, 65535, 0), -1
+    return laplace_img
+
+
+def generate_multivariate_laplace_2d(gt_points, H, W):
+    correlation_coefficient = 0
+    standard_deviation = 0.5
+    k = 2
+    v = (2 - k) / 2
+
+    laplace_img = np.zeros((H, W))
+    process_idx = current_process()._identity[0] - 1
+    for gt_point in tqdm(
+        gt_points,
+        desc=f"process {process_idx} generating heatmap...",
+        position=process_idx + 1,
+        leave=True,
+    ):
+        x_linespace_mtx = np.arange(-gt_point[0], W - gt_point[0])
+        y_linespace_mtx = np.arange(-gt_point[1], H - gt_point[1])
+
+        x_axis_mtx, y_axis_mtx = np.meshgrid(x_linespace_mtx, y_linespace_mtx)
+
+        laplace_img += (
+            (
+                2
+                / (
+                    ((2 * math.pi) ** (k / 2))
+                    * (standard_deviation**k)
+                    * math.sqrt(1 - correlation_coefficient**2)
+                )
             )
+            * ((x_axis_mtx**2 + y_axis_mtx**2) / 2) ** (v / 2)
+            * scipy.special.kve(
+                v, np.sqrt(2 * (x_axis_mtx**2 + y_axis_mtx**2) / (1 - correlation_coefficient**2))
+            )
+        )
 
-        # binary_gt 이미지 저장
-        filename = os.path.split(os.path.splitext(tif_filepath)[0])[1]
-        save_filepath = os.path.join(save_path, filename + f"_gt.png")
-        logging.info(f"save binary image: {save_filepath}")
-        cv2.imwrite(save_filepath, gray_gt_img)
+    # laplace_img[laplace_img == inf] = 10
+    # laplace_img = laplace_img / laplace_img.max()
+    laplace_img = laplace_img**2
+    # laplace_img *= 255
+    # laplace_img = Image.fromarray(laplace_img)
+    # # laplace_img = laplace_img.convert("RGB")
+
+    return laplace_img
 
 
 if __name__ == "__main__":
-    data_path = r"./original_data/D5"
-    save_path = r"./code_test_results/binary_equalize_hist_images/D5"
+    save_dir = r"./test_code_results/multivariate_laplace_2d/"
+    save_path = os.path.join(save_dir, "D5_20191212103725.png")
 
-    os.makedirs(save_path, exist_ok=True)
+    sample_image_path = r"./original_data/D5/20191212103725.tif"
+    sample_gt_path = r"./original_data/D5/20191212103725.txt"
 
-    generate_heatmap(data_path, save_path, heatmap_size=3)
+    H = 3072
+    W = 3072
+    scale = 2.5
 
+    os.makedirs(save_dir, exist_ok=True)
 
-# def generate_laplace_heatmap(gt, H, W, scale):
-#     """laplace heatmap을 생성해서 반환하는 함수
+    with open(sample_gt_path, "r") as f:
+        gt_points = list(csv.reader(f, delimiter=","))
+        # str인 좌표를 int형으로 변경
+        gt_points = [[eval(i[0]), eval(i[1])] for i in gt_points]
+        num_processes = 12
+        max_num_elements_in_process = math.ceil(len(gt_points) / num_processes)
+        gt_points_per_process = [
+            gt_points[i : i + max_num_elements_in_process]
+            for i in range(0, len(gt_points), max_num_elements_in_process)
+        ]
 
-#     앞으로 고민할 점: 육안으로 검은색인 영역의 실제 값은 0인가?
-#                      (scale이 작으면 0일 것으로 생각됨)
+        if len(gt_points_per_process) < num_processes:
+            num_processes = len(gt_points_per_process)
 
-#     Args:
-#         gt (_type_): _description_
-#         H (_type_): _description_
-#         W (_type_): _description_
-#         scale (_type_): _description_
+        results = process_map(
+            generate_multivariate_laplace_2d,
+            gt_points_per_process,
+            [H] * num_processes,
+            [W] * num_processes,
+            # [scale] * num_processes,
+            max_workers=num_processes,
+            desc="overall progress",
+        )
 
-#     Returns:
-#         _type_: _description_
-#     """
-#     x_axis_mtx = np.arange(W)
-#     x_axis_mtx = np.matlib.repmat(x_axis_mtx, H, 1)
-#     y_axis_mtx = np.arange(H)
-#     y_axis_mtx = np.matlib.repmat(y_axis_mtx, W, 1).transpose()
+        result_image = np.zeros((H, W))
+        for result in results:
+            result_image += result
 
-#     laplace_img = np.zeros((H, W))
-#     process_idx = current_process()._identity[0] - 1
-#     for gt_point in tqdm(
-#         gt,
-#         desc=f"process {process_idx} generating heatmap...",
-#         position=process_idx + 1,
-#         leave=True,
-#     ):
-#         center_width_mtx = np.ones((H, W)) * gt_point[0]
-#         center_height_mtx = np.ones((H, W)) * gt_point[1]
-#         x_axis_dist = x_axis_mtx - center_width_mtx
-#         y_axis_dist = y_axis_mtx - center_height_mtx
-#         laplace_img += (1 / (2 * scale)) * np.exp(
-#             -1 * (np.abs(x_axis_dist) + np.abs(y_axis_dist)) / (scale**2)
-#         )
+        result_image[result_image == inf] = result_image[result_image != inf].max() * 1.1
+        result_image = result_image / result_image.max()
+        result_image *= 255
+        result_image = Image.fromarray(result_image).convert("L")
 
-#     # x_linespace_mtx = torch.arange(-gt[0][0], W - gt[0][0], dtype=torch.float)
-#     # y_linespace_mtx = torch.arange(-gt[0][1], H - gt[0][1], dtype=torch.float)
-#     # x_axis_mtx, y_axis_mtx = torch.meshgrid(x_linespace_mtx, y_linespace_mtx)
-#     # laplace_img = (1 / (2 * scale)) * torch.exp(
-#     #     -1 * (torch.abs(x_axis_mtx) + torch.abs(y_axis_mtx)) / (scale**2)
-#     # )
-#     # x_axis_mtx = torch.arange(W, dtype=torch.float, device=device)
-#     # x_axis_mtx = x_axis_mtx.repeat(H, 1)
-#     # y_axis_mtx = torch.arange(H, dtype=torch.float, device=device)
-#     # y_axis_mtx = y_axis_mtx.repeat(W, 1).transpose(0, 1)
-
-#     # laplace_img = torch.zeros((H, W), device=device)
-
-#     # for gt_point in gt:
-#     #     center_width_mtx = torch.ones((H, W), dtype=torch.float, device=device) * gt_point[0]
-#     #     center_height_mtx = torch.ones((H, W), dtype=torch.float, device=device) * gt_point[1]
-#     #     x_axis_dist = (x_axis_mtx - center_width_mtx)
-#     #     y_axis_dist = (y_axis_mtx - center_height_mtx)
-#     #     laplace_img += (1 / (2 * scale)) * torch.exp(-1 * (torch.abs(x_axis_dist) + torch.abs(y_axis_dist)) / (scale ** 2))
-#     #     break
-#     laplace_img = laplace_img / laplace_img.max()
-#     laplace_img *= 255
-#     laplace_img = Image.fromarray(laplace_img)
-#     # laplace_img = to_pil_image(laplace_img)
-#     laplace_img = laplace_img.convert("RGB")
-
-#     return laplace_img
+        result_image.save(save_path)

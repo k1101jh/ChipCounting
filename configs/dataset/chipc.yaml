@@ -1,7 +1,8 @@
 dataset_path: "./dataset"
 image_dataset_path: "./dataset/image"
-input_image_dataset_path: "./dataset/input"
-heatmap_dataset_path: "./dataset/heatmap"
+# input_image_dataset_path: "./dataset/equalize_hist"
+input_image_dataset_path: "./dataset/laplacian"
+heatmap_dataset_path: "./dataset/heatmap_laplace"
 
 patch_size: 512
 patch_stride: 128

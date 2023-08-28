@@ -11,7 +11,7 @@ from utils import SplitTensorModule
 
 
 class ChipDataset(Dataset):
-    def __init__(self, data_dir_list, transform, unfold_mode="crop", **kwargs):
+    def __init__(self, data_dir_list, transform, **kwargs):
         """_summary_
 
         Args:
@@ -76,13 +76,13 @@ class ChipDataset(Dataset):
 
         # patch 나누기
         images = torch.cat((input_image, heatmap_image), 0).unsqueeze(1)
-        images = self.tensor_split_module(images)
+        # images = self.tensor_split_module(images)
 
-        # random patch 선택
-        random_idx = random.randrange(0, images.shape[1])
-        patches = images[:, random_idx]
+        # # random patch 선택
+        # random_idx = random.randrange(0, images.shape[1])
+        # patches = images[:, random_idx]
 
         # transform 적용
-        patches = self.transform(patches)
+        images = self.transform(images)
 
-        return patches[0].unsqueeze(0), patches[1].unsqueeze(0)
+        return images[0], images[1]

@@ -4,6 +4,10 @@ import argparse
 import numpy as np
 from numpy import matlib
 import glob
+import math
+
+import scipy
+from numpy import inf
 import csv
 import cv2
 import shutil
@@ -74,17 +78,62 @@ def generate_laplace_heatmap(gt, H, W, scale):
     return laplace_img
 
 
+def generate_multivariate_laplace_2d(gt_points, H, W):
+    correlation_coefficient = 0
+    standard_deviation = 0.5
+    k = 2
+    v = (2 - k) / 2
+
+    laplace_image = np.zeros((H, W))
+    process_idx = current_process()._identity[0] - 1
+    for gt_point in tqdm(
+        gt_points,
+        desc=f"process {process_idx} generating heatmap...",
+        position=process_idx + 1,
+        leave=True,
+    ):
+        x_linespace_mtx = np.arange(-gt_point[0], W - gt_point[0])
+        y_linespace_mtx = np.arange(-gt_point[1], H - gt_point[1])
+
+        x_axis_mtx, y_axis_mtx = np.meshgrid(x_linespace_mtx, y_linespace_mtx)
+
+        laplace_image += (
+            (
+                2
+                / (
+                    ((2 * math.pi) ** (k / 2))
+                    * (standard_deviation**k)
+                    * math.sqrt(1 - correlation_coefficient**2)
+                )
+            )
+            * ((x_axis_mtx**2 + y_axis_mtx**2) / 2) ** (v / 2)
+            * scipy.special.kve(
+                v, np.sqrt(2 * (x_axis_mtx**2 + y_axis_mtx**2) / (1 - correlation_coefficient**2))
+            )
+        )
+
+    laplace_image[laplace_image == inf] = laplace_image[laplace_image != inf].max() * 1.1
+    laplace_image = laplace_image**2
+    laplace_image = laplace_image / laplace_image.max()
+    laplace_image *= 255
+    laplace_image = Image.fromarray(laplace_image).convert("L")
+    # # laplace_img = laplace_img.convert("RGB")
+
+    return laplace_image
+
+
 def generate_heatmap_multiprocessing(gt_file_path, heatmap_save_path, H, W, scale):
-    laplace_img = None
+    laplace_image = None
     # heatmap 생성
     with open(gt_file_path, "r") as f:
         gt_points = list(csv.reader(f, delimiter=","))
         # str인 좌표를 int형으로 변경
         gt_points = [[eval(i[0]), eval(i[1])] for i in gt_points]
-        laplace_img = generate_laplace_heatmap(gt_points, H=H, W=W, scale=scale)
+        # laplace_img = generate_laplace_heatmap(gt_points, H=H, W=W, scale=scale)
+        laplace_image = generate_multivariate_laplace_2d(gt_points, H=H, W=W)
         f.close()
 
-    laplace_img.save(heatmap_save_path)
+    laplace_image.save(heatmap_save_path)
 
 
 def preprocess():
@@ -114,9 +163,7 @@ def preprocess():
         default="./dataset",
         help="path where the result image will be saved",
     )
-    parser.add_argument(
-        "--scale", type=float, default=3, help="laplace heatmap scale factor"
-    )
+    parser.add_argument("--scale", type=float, default=2.5, help="laplace heatmap scale factor")
     parser.add_argument("--height", type=int, default=3072)
     parser.add_argument("--width", type=int, default=3072)
     parser.add_argument(
@@ -143,11 +190,14 @@ def preprocess():
     for data_folder in args.data_folders:
         data_folder_path = os.path.join(args.data_path, data_folder)
         original_image_dir_path = os.path.join(args.dest_path, "original", data_folder)
-        input_image_dir_path = os.path.join(args.dest_path, "input", data_folder)
-        heatmap_dir_path = os.path.join(args.dest_path, "heatmap", data_folder)
+        equalize_hist_image_dir_path = os.path.join(args.dest_path, "equalize_hist", data_folder)
+        laplacian_image_dir_path = os.path.join(args.dest_path, "laplacian", data_folder)
+        # heatmap_dir_path = os.path.join(args.dest_path, f"heatmap_scale_{args.scale:.1f}", data_folder)
+        heatmap_dir_path = os.path.join(args.dest_path, f"heatmap_laplace", data_folder)
 
         os.makedirs(original_image_dir_path, exist_ok=True)
-        os.makedirs(input_image_dir_path, exist_ok=True)
+        os.makedirs(equalize_hist_image_dir_path, exist_ok=True)
+        os.makedirs(laplacian_image_dir_path, exist_ok=True)
         os.makedirs(heatmap_dir_path, exist_ok=True)
 
         # 이미지 경로 리스트 생성
@@ -173,9 +223,7 @@ def preprocess():
         if not args.overwrite:
             new_gt_path_list = []
             new_heatmap_path_list = []
-            for gt_path, heatmap_path in zip(
-                cur_data_gt_file_list, cur_heatmap_save_path_list
-            ):
+            for gt_path, heatmap_path in zip(cur_data_gt_file_list, cur_heatmap_save_path_list):
                 if not os.path.exists(heatmap_path):
                     new_gt_path_list.append(gt_path)
                     new_heatmap_path_list.append(heatmap_path)
@@ -190,22 +238,23 @@ def preprocess():
         logging.info("원본 이미지 복사 및 히스토그램 평활화 이미지 저장")
         for tif_file_path in tqdm(tif_file_list):
             # 저장 파일명
-            original_image_save_path = os.path.join(
-                original_image_dir_path, os.path.split(tif_file_path)[1]
+            tif_filename = os.path.split(tif_file_path)[1]
+            original_image_save_path = os.path.join(original_image_dir_path, tif_filename)
+            equalize_hist_image_save_path = os.path.join(
+                equalize_hist_image_dir_path,
+                os.path.splitext(tif_filename)[0] + ".png",
             )
-            input_image_save_path = os.path.join(
-                input_image_dir_path,
-                os.path.split(os.path.splitext(tif_file_path)[0])[1] + ".png",
+            laplacian_image_save_path = os.path.join(
+                laplacian_image_dir_path,
+                os.path.splitext(tif_filename)[0] + ".png",
             )
 
             # 파일이 이미 존재하는지 검사
-            if bool(args.overwrite) != bool(
-                not os.path.exists(original_image_save_path)
-            ):
+            if bool(args.overwrite) != bool(not os.path.exists(original_image_save_path)):
                 # 이미지 복사
                 shutil.copy(tif_file_path, os.path.join(original_image_save_path))
 
-            if bool(args.overwrite) != bool(not os.path.exists(input_image_save_path)):
+            if bool(args.overwrite) != bool(not os.path.exists(equalize_hist_image_save_path)):
                 # 입력 이미지 불러오기
                 original_image = cv2.imread(tif_file_path, flags=cv2.IMREAD_UNCHANGED)
 
@@ -215,7 +264,18 @@ def preprocess():
                 hist_image = equalize_hist_16(binary_image)
 
                 # 히스토그램 평활화 이미지 저장
-                cv2.imwrite(input_image_save_path, hist_image)
+                cv2.imwrite(equalize_hist_image_save_path, hist_image)
+
+            if bool(args.overwrite) != bool(not os.path.exists(laplacian_image_save_path)):
+                # 입력 이미지 불러오기
+                original_image = cv2.imread(tif_file_path, flags=cv2.IMREAD_UNCHANGED)
+                # laplacian 이미지 생성
+                laplacian_image = cv2.Laplacian(original_image, -1, ksize=3)
+                laplacian_image = (
+                    cv2.normalize(laplacian_image, None, 0, 65535, cv2.NORM_MINMAX, dtype=-1) * 65535
+                )
+                # laplacian 이미지 저장
+                cv2.imwrite(laplacian_image_save_path, laplacian_image)
 
     logging.info("heatmap 생성 및 저장")
     results = process_map(

@@ -1,7 +1,7 @@
 batch_size: 4
-num_workers: 4
+num_workers: 6
 epochs: 1000
-test_interval: 10
+test_interval: 20
 save_model: True
 model_save_path: saved_models/${experiment_name}
 profiling: False

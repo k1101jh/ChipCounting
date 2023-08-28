@@ -8,7 +8,7 @@ Papers/
 logs/
 runs/
 outputs/
-code_test_results/
+test_code_results/
 original_data/
 saved_models/
 results/
